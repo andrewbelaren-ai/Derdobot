@@ -16,6 +16,15 @@ from collections import defaultdict
 from datetime import datetime
 
 import sqlite3
+import subprocess
+import sys
+
+# Авто-установка aiogram если не установлен
+try:
+    import aiogram
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "aiogram==3.13.1"])
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, BotCommand
@@ -179,12 +188,12 @@ BRAND = "🔥 *95 Дон Чечня*"
 @dp.message(Command("start"))
 async def cmd_start(msg: Message) -> None:
     text = (
-        "🕯️ *ДердоBOT* активирован ле!\n\n"
-        "Читаю все сообщения, запоминаю, говорю.\n\n"
-        "⚡⚡ *Команды:*\n"
-        "  `/generate` - сгенерировать какую-то случайную фразу\n"
-        "  `/continue <текст>` - продолжить твою фразу про валеру\n"
-        "  `/stats` - статистика БД"
+        "⚡⚡ *ДердоBOT* активирован!\n\n"
+        "Читаю все высеры, думаю, высераю.\n\n"
+        "🕯️ *Команды:*\n"
+        "  `/generate` - сгенерировать случайный высер\n"
+        "  `/continue <текст>` - продолжить твою фразу про валерку\n"
+        "  `/stats` - статистика мозга"
     )
     await msg.answer(text, parse_mode="Markdown")
 
@@ -196,8 +205,8 @@ async def cmd_stats(msg: Message) -> None:
     n = await count_messages()
     await msg.answer(
         f"📊 *Статистика ДердоBOTа*\n\n"
-        f"💾 Сообщений от дебилов: *{n}* / {MAX_MESSAGES}\n"
-        f"🧠 Заполнено мозга: *{n / MAX_MESSAGES * 100:.1f}%*",
+        f"💾 Сообщений в мозге: *{n}* / {MAX_MESSAGES}\n"
+        f"😎 Заполнено: *{n / MAX_MESSAGES * 100:.1f}%*",
         parse_mode="Markdown",
     )
 
@@ -210,7 +219,7 @@ async def cmd_generate(msg: Message) -> None:
 
     if len(texts) < 5:
         await msg.answer(
-            "⚠️ лее маловато ещо данных для генерации. Пишите больше гении",
+            "⚠️ леее маловато данных для высеров!!!",
             parse_mode="Markdown",
         )
         return
@@ -255,7 +264,7 @@ async def cmd_continue(msg: Message) -> None:
     texts = await get_all_texts()
     if len(texts) < 5:
         await msg.answer(
-            "⚠️ лее еще мало данных, дай боту накопить больше высеров с чата",
+            "⚠️ Ещё мало высеров брат",
             parse_mode="Markdown",
         )
         return
@@ -264,7 +273,7 @@ async def cmd_continue(msg: Message) -> None:
     continuation = generate_markov(chain, seed=seed_words)
 
     if not continuation:
-        continuation = seed_text + " ...95"
+        continuation = seed_text + " ...95."
 
     await msg.answer(
         f"_{continuation}_",
