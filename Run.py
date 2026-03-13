@@ -15,7 +15,7 @@ import os
 from collections import defaultdict
 from datetime import datetime
 
-import aiosqlite
+import sqlite3
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message, BotCommand
@@ -24,7 +24,7 @@ from aiogram.types import Message, BotCommand
 #  КОНФИГ
 # ------------------------------------------------------------------------------
 
-BOT_TOKEN   = os.getenv("BOT_TOKEN", "8605622348:AAG03XrlvdcLGJBiHzbet5bXHyQr_4CV54E")
+BOT_TOKEN   = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_ЗДЕСЬ")
 DB_PATH     = "derdo_messages.db"
 MAX_MESSAGES = 5000
 RANDOM_REPLY_CHANCE = 0.10   # 10 %
@@ -44,69 +44,69 @@ logger = logging.getLogger("ДердоBOT")
 #  БАЗА ДАННЫХ
 # ------------------------------------------------------------------------------
 
+def _init_db_sync() -> None:
+    con = sqlite3.connect(DB_PATH)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL,
+            text       TEXT    NOT NULL,
+            created_at TEXT    NOT NULL
+        )
+    """)
+    con.commit()
+    con.close()
+
 async def init_db() -> None:
-    """Создаёт таблицу сообщений, если её ещё нет."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id   INTEGER NOT NULL,
-                text      TEXT    NOT NULL,
-                created_at TEXT   NOT NULL
-            )
-        """)
-        await db.commit()
+    await asyncio.to_thread(_init_db_sync)
     logger.info("БД инициализирована -> %s", DB_PATH)
 
 
+def _save_message_sync(user_id: int, text: str) -> None:
+    con = sqlite3.connect(DB_PATH)
+    (count,) = con.execute("SELECT COUNT(*) FROM messages").fetchone()
+    if count >= MAX_MESSAGES:
+        con.execute("DELETE FROM messages WHERE id = (SELECT MIN(id) FROM messages)")
+        logger.debug("FIFO: удалено старейшее сообщение (было %d)", count)
+    con.execute(
+        "INSERT INTO messages (user_id, text, created_at) VALUES (?, ?, ?)",
+        (user_id, text, datetime.utcnow().isoformat()),
+    )
+    con.commit()
+    con.close()
+
 async def save_message(user_id: int, text: str) -> None:
-    """
-    Сохраняет сообщение в БД.
-    FIFO: если записей >= MAX_MESSAGES - удаляет самую старую.
-    """
-    async with aiosqlite.connect(DB_PATH) as db:
-        # Считаем текущее кол-во
-        async with db.execute("SELECT COUNT(*) FROM messages") as cur:
-            (count,) = await cur.fetchone()
-
-        if count >= MAX_MESSAGES:
-            # Удаляем самое старое (наименьший id)
-            await db.execute("""
-                DELETE FROM messages
-                WHERE id = (SELECT MIN(id) FROM messages)
-            """)
-            logger.debug("FIFO: удалено старейшее сообщение (было %d)", count)
-
-        await db.execute(
-            "INSERT INTO messages (user_id, text, created_at) VALUES (?, ?, ?)",
-            (user_id, text, datetime.utcnow().isoformat()),
-        )
-        await db.commit()
+    await asyncio.to_thread(_save_message_sync, user_id, text)
 
 
-async def get_all_texts() -> list[str]:
-    """Возвращает список всех сохранённых текстов."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT text FROM messages") as cur:
-            rows = await cur.fetchall()
+def _get_all_texts_sync() -> list:
+    con = sqlite3.connect(DB_PATH)
+    rows = con.execute("SELECT text FROM messages").fetchall()
+    con.close()
     return [row[0] for row in rows]
 
+async def get_all_texts() -> list:
+    return await asyncio.to_thread(_get_all_texts_sync)
 
-async def get_random_message() -> str | None:
-    """Возвращает случайное сообщение из БД или None если БД пуста."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT text FROM messages ORDER BY RANDOM() LIMIT 1"
-        ) as cur:
-            row = await cur.fetchone()
+
+def _get_random_message_sync():
+    con = sqlite3.connect(DB_PATH)
+    row = con.execute("SELECT text FROM messages ORDER BY RANDOM() LIMIT 1").fetchone()
+    con.close()
     return row[0] if row else None
 
+async def get_random_message():
+    return await asyncio.to_thread(_get_random_message_sync)
+
+
+def _count_messages_sync() -> int:
+    con = sqlite3.connect(DB_PATH)
+    (n,) = con.execute("SELECT COUNT(*) FROM messages").fetchone()
+    con.close()
+    return n
 
 async def count_messages() -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT COUNT(*) FROM messages") as cur:
-            (n,) = await cur.fetchone()
-    return n
+    return await asyncio.to_thread(_count_messages_sync)
 
 # ------------------------------------------------------------------------------
 #  МАРКОВСКИЕ ЦЕПИ
@@ -171,7 +171,7 @@ def generate_markov(chain: dict[tuple, list[str]],
 bot = Bot(token=BOT_TOKEN)
 dp  = Dispatcher()
 
-BRAND = "🔥 *95 Дон Чечня | ДЭРД | ДЕРД | ДОЕД* | _by BerushaGMD_"
+BRAND = "🔥 *95 Дон Чечня*"
 
 
 # -- /start -----------------------------------------------------------------
@@ -179,12 +179,12 @@ BRAND = "🔥 *95 Дон Чечня | ДЭРД | ДЕРД | ДОЕД* | _by Beru
 @dp.message(Command("start"))
 async def cmd_start(msg: Message) -> None:
     text = (
-        "⚡⚡ *ДердоBOT* активирован!\n\n"
-        "Читаю всех сообщения, дерд, говорю.\n\n"
-        "💀 *Команды:*\n"
-        "  `/generate` - сгенерировать случайную фразу\n"
-        "  `/continue <текст>` - продолжу твою фразу про валеру\n"
-        "  `/stats` - статистика БД, ну сколько там сообщений поняли"
+        "🕯️ *ДердоBOT* активирован ле!\n\n"
+        "Читаю все сообщения, запоминаю, говорю.\n\n"
+        "⚡⚡ *Команды:*\n"
+        "  `/generate` - сгенерировать какую-то случайную фразу\n"
+        "  `/continue <текст>` - продолжить твою фразу про валеру\n"
+        "  `/stats` - статистика БД"
     )
     await msg.answer(text, parse_mode="Markdown")
 
@@ -195,9 +195,9 @@ async def cmd_start(msg: Message) -> None:
 async def cmd_stats(msg: Message) -> None:
     n = await count_messages()
     await msg.answer(
-        f"📊 *Статистика ДердоBOT*\n\n"
-        f"💾 Сообщений в памяти: *{n}* / {MAX_MESSAGES}\n"
-        f"🧠 Заполнено: *{n / MAX_MESSAGES * 100:.1f}%*",
+        f"📊 *Статистика ДердоBOTа*\n\n"
+        f"💾 Сообщений от дебилов: *{n}* / {MAX_MESSAGES}\n"
+        f"🧠 Заполнено мозга: *{n / MAX_MESSAGES * 100:.1f}%*",
         parse_mode="Markdown",
     )
 
@@ -210,7 +210,7 @@ async def cmd_generate(msg: Message) -> None:
 
     if len(texts) < 5:
         await msg.answer(
-            "⚠️ лее брат, маловато данных для генерации текста. Пиши больше и запомню",
+            "⚠️ лее маловато ещо данных для генерации. Пишите больше гении",
             parse_mode="Markdown",
         )
         return
@@ -226,7 +226,7 @@ async def cmd_generate(msg: Message) -> None:
         phrase = generate_markov(chain)
 
     if not phrase:
-        phrase = "...слова кончились, но дух ДЕРД вечен."
+        phrase = "...95"
 
     await msg.answer(
         f"_{phrase}_",
@@ -255,7 +255,7 @@ async def cmd_continue(msg: Message) -> None:
     texts = await get_all_texts()
     if len(texts) < 5:
         await msg.answer(
-            "⚠️ Ещё мало данных. Дай боту накопить больше высеров с чата",
+            "⚠️ лее еще мало данных, дай боту накопить больше высеров с чата",
             parse_mode="Markdown",
         )
         return
@@ -264,7 +264,7 @@ async def cmd_continue(msg: Message) -> None:
     continuation = generate_markov(chain, seed=seed_words)
 
     if not continuation:
-        continuation = seed_text + " ...95."
+        continuation = seed_text + " ...95"
 
     await msg.answer(
         f"_{continuation}_",
