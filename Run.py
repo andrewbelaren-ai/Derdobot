@@ -33,7 +33,7 @@ from aiogram.types import Message, BotCommand
 #  КОНФИГ
 # ------------------------------------------------------------------------------
 
-BOT_TOKEN            = os.getenv("BOT_TOKEN", "ВАШ_ТОКЕН_ЗДЕСЬ")
+BOT_TOKEN            = os.getenv("BOT_TOKEN", "8605622348:AAG03XrlvdcLGJBiHzbet5bXHyQr_4CV54E")
 DB_PATH              = "derdo_messages.db"
 MAX_MESSAGES         = 360000
 RANDOM_REPLY_CHANCE  = 0.10          # 10 %
